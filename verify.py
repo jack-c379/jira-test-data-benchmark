@@ -18,6 +18,7 @@ import sys
 from datetime import datetime, timezone
 
 import config
+from config import ConfigError
 from utils.rate_limiter import JiraRateLimiter
 
 logging.basicConfig(
@@ -388,7 +389,11 @@ def main() -> None:
                         help="Check a single project only")
     args = parser.parse_args()
 
-    config.validate_config()
+    try:
+        config.validate_config()
+    except ConfigError as e:
+        log.error(str(e))
+        sys.exit(1)
 
     email, token = config.get_jira_auth()
     api = JiraRateLimiter(config.JIRA_URL, email, token)

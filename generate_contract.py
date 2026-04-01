@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import config
+from config import ConfigError
 from utils.rate_limiter import JiraRateLimiter
 from utils.text_generator import TextGenerator
 from utils.distributions import ArchetypeSampler
@@ -537,7 +538,11 @@ def main() -> None:
                         help="Run for a single project key (e.g., BENCH-S1)")
     args = parser.parse_args()
 
-    config.validate_config()
+    try:
+        config.validate_config()
+    except ConfigError as e:
+        log.error(str(e))
+        sys.exit(1)
 
     sampler = ArchetypeSampler(seed=config.RANDOM_SEED)
     text_gen = TextGenerator(seed=config.RANDOM_SEED)

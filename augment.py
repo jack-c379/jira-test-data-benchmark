@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Callable
 
 import config
+from config import ConfigError
 from utils.rate_limiter import JiraRateLimiter
 from utils.text_generator import TextGenerator
 from utils.distributions import ArchetypeSampler, ARCHETYPES
@@ -528,7 +529,11 @@ def main() -> None:
                         help="Auto-resume from checkpoints (default: True)")
     args = parser.parse_args()
 
-    config.validate_config()
+    try:
+        config.validate_config()
+    except ConfigError as e:
+        log.error(str(e))
+        sys.exit(1)
 
     workers = args.workers or config.AUGMENT_WORKERS
     dry_run = args.dry_run

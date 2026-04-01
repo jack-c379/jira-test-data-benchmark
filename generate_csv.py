@@ -22,6 +22,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import config
+from config import ConfigError
 from utils.text_generator import TextGenerator
 from utils.distributions import ArchetypeSampler, ARCHETYPES
 
@@ -277,7 +278,11 @@ def main() -> None:
                         help="Generate for a single project only")
     args = parser.parse_args()
 
-    config.validate_config()
+    try:
+        config.validate_config()
+    except ConfigError as e:
+        log.error(str(e))
+        return
 
     scale = args.scale_factor if args.scale_factor is not None else config.SCALE_FACTOR
     log.info("Scale factor: %.2f", scale)

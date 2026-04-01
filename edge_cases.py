@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import config
+from config import ConfigError
 from utils.rate_limiter import JiraRateLimiter
 from utils.text_generator import TextGenerator
 
@@ -537,7 +538,11 @@ def main() -> None:
                         help=f"Target project (default: {DEFAULT_PROJECT})")
     args = parser.parse_args()
 
-    config.validate_config()
+    try:
+        config.validate_config()
+    except ConfigError as e:
+        log.error(str(e))
+        sys.exit(1)
 
     text_gen = TextGenerator(seed=config.RANDOM_SEED)
     rng = random.Random(config.RANDOM_SEED)

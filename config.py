@@ -6,14 +6,16 @@ augmentation parameters, and directory paths. Every other script imports
 from here — this is the single source of truth.
 """
 
-import base64
+import logging
 import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 from dotenv import load_dotenv
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -34,6 +36,37 @@ JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN", "")
 # The base_issues count is the target at SCALE_FACTOR = 1.0 (100K total).
 
 ARCHETYPES = ("SCRUM-1", "SCRUM-2", "KANBAN-1", "KANBAN-2", "CLASSIC")
+
+# ---------------------------------------------------------------------------
+# The 20 Jira objects Fivetran syncs (single source of truth)
+# ---------------------------------------------------------------------------
+# From Fivetran Scorecard Section 4. Every generation script and eval check
+# references this list. If objects change, update here and nowhere else.
+
+FIVETRAN_OBJECTS: List[str] = [
+    "Issues",
+    "Issue Field History",
+    "Issue Multiselect History",
+    "Comments",
+    "Worklogs",
+    "Issue Links",
+    "Watchers / Votes",
+    "Issue Properties",
+    "Remote Links",
+    "Projects",
+    "Components / Versions",
+    "Boards",
+    "Sprints",
+    "Users",
+    "Groups",
+    "Atlassian Teams",
+    "Fields & Field Options",
+    "Issue Types / Statuses / Priorities",
+    "Project Roles & Permission Schemes",
+    "Security Schemes & Levels",
+]
+
+FIVETRAN_OBJECT_COUNT: int = len(FIVETRAN_OBJECTS)  # 20
 
 
 @dataclass(frozen=True)
@@ -117,29 +150,34 @@ OUTPUT_DIR: Path = ROOT_DIR / "output"
 MANIFEST_DIR: Path = ROOT_DIR / "manifests"
 
 # ---------------------------------------------------------------------------
+# Config error (raised instead of sys.exit so library callers can handle it)
+# ---------------------------------------------------------------------------
+
+
+class ConfigError(Exception):
+    """Raised when configuration is invalid or incomplete."""
+
+
+# ---------------------------------------------------------------------------
 # Auth helpers
 # ---------------------------------------------------------------------------
 
 
 def get_jira_auth() -> Tuple[str, str]:
     """Return ``(email, api_token)`` for Jira basic auth."""
-    if not JIRA_EMAIL or not JIRA_API_TOKEN:
-        raise RuntimeError(
-            "JIRA_EMAIL and JIRA_API_TOKEN must be set in .env "
-            "(see .env.example)"
+    missing = []
+    if not JIRA_URL:
+        missing.append("JIRA_URL")
+    if not JIRA_EMAIL:
+        missing.append("JIRA_EMAIL")
+    if not JIRA_API_TOKEN:
+        missing.append("JIRA_API_TOKEN")
+    if missing:
+        raise ConfigError(
+            f"Missing env vars: {', '.join(missing)}. "
+            f"Copy .env.example to .env and fill in your values."
         )
     return JIRA_EMAIL, JIRA_API_TOKEN
-
-
-def get_jira_headers() -> Dict[str, str]:
-    """Return HTTP headers dict with Basic auth + JSON content type."""
-    email, token = get_jira_auth()
-    creds = base64.b64encode(f"{email}:{token}".encode()).decode()
-    return {
-        "Authorization": f"Basic {creds}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -151,36 +189,35 @@ def validate_config() -> None:
     """Check that env vars are set and working directories exist.
 
     Creates checkpoint, output, and manifest directories if missing.
-    Raises ``SystemExit`` on fatal problems (missing credentials or URL).
+    Raises ``ConfigError`` on fatal problems (missing credentials or URL).
+    CLI scripts should catch ConfigError and call sys.exit(1).
     """
-    errors: list[str] = []
+    missing: list[str] = []
 
     if not JIRA_URL:
-        errors.append("JIRA_URL is not set in .env")
+        missing.append("JIRA_URL")
     if not JIRA_EMAIL:
-        errors.append("JIRA_EMAIL is not set in .env")
+        missing.append("JIRA_EMAIL")
     if not JIRA_API_TOKEN:
-        errors.append("JIRA_API_TOKEN is not set in .env")
+        missing.append("JIRA_API_TOKEN")
 
-    if errors:
-        for e in errors:
-            print(f"[config] ERROR: {e}", file=sys.stderr)
-        print(
-            "[config] Copy .env.example to .env and fill in your values.",
-            file=sys.stderr,
+    if missing:
+        raise ConfigError(
+            f"Missing env vars: {', '.join(missing)}. "
+            f"Copy .env.example to .env and fill in your values."
         )
-        sys.exit(1)
 
     # Ensure directories exist (idempotent).
     for d in (CHECKPOINT_DIR, OUTPUT_DIR, MANIFEST_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
-    print(f"[config] Jira URL   : {JIRA_URL}")
-    print(f"[config] Scale      : {SCALE_FACTOR}x  ({total_issues():,} issues)")
-    print(f"[config] Projects   : {', '.join(PROJECTS)}")
-    print(f"[config] Checkpoints: {CHECKPOINT_DIR}")
-    print(f"[config] Output     : {OUTPUT_DIR}")
-    print(f"[config] Manifests  : {MANIFEST_DIR}")
+    log.info("Jira URL   : %s", JIRA_URL)
+    log.info("Scale      : %sx  (%s issues)", SCALE_FACTOR, f"{total_issues():,}")
+    log.info("Projects   : %s", ", ".join(PROJECTS))
+    log.info("Objects    : %d Fivetran-synced types", FIVETRAN_OBJECT_COUNT)
+    log.info("Checkpoints: %s", CHECKPOINT_DIR)
+    log.info("Output     : %s", OUTPUT_DIR)
+    log.info("Manifests  : %s", MANIFEST_DIR)
 
 
 # ---------------------------------------------------------------------------
@@ -188,5 +225,10 @@ def validate_config() -> None:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    validate_config()
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    try:
+        validate_config()
+    except ConfigError as e:
+        print(f"[config] ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
     print("\nConfig OK.")

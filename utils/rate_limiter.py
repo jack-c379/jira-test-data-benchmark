@@ -57,6 +57,8 @@ class JiraRateLimiter:
         low_point_threshold: Sleep preemptively when remaining points drop below
                              this value (default 10)
         log_interval: Log point summary every N requests (default 100)
+        timeout: Connection and read timeout in seconds (default 30).
+                 Passed as (connect_timeout, read_timeout) tuple to requests.
     """
 
     def __init__(
@@ -67,11 +69,13 @@ class JiraRateLimiter:
         max_retries: int = 5,
         low_point_threshold: int = 10,
         log_interval: int = 100,
+        timeout: float = 30.0,
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
         self.low_point_threshold = low_point_threshold
         self.log_interval = log_interval
+        self.timeout = (timeout, timeout)  # (connect, read)
 
         # Session with Basic auth
         self._session = requests.Session()
@@ -163,6 +167,7 @@ class JiraRateLimiter:
 
         last_retry_after = 0.0
         for attempt in range(self.max_retries + 1):
+            kwargs.setdefault("timeout", self.timeout)
             response = self._session.request(method, url, **kwargs)
 
             # Update rate-limit tracking from response headers

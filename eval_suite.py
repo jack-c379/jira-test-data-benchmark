@@ -21,6 +21,7 @@ import time
 from datetime import datetime, timezone
 
 import config
+from config import ConfigError
 from utils.rate_limiter import JiraRateLimiter
 from utils.distributions import ARCHETYPES
 
@@ -726,7 +727,11 @@ def main() -> None:
                         help="Path to JSON with real Jira sync metrics for Q9")
     args = parser.parse_args()
 
-    config.validate_config()
+    try:
+        config.validate_config()
+    except ConfigError as e:
+        log.error(str(e))
+        sys.exit(1)
 
     email, token = config.get_jira_auth()
     api = JiraRateLimiter(config.JIRA_URL, email, token)
@@ -796,22 +801,38 @@ def main() -> None:
         "quality_checks": {k: v for k, v in results.items() if k.startswith("Q")},
         "edge_case_coverage": results.get("Q7", {}).get("found", []),
         "calibration": results.get("Q9", {}).get("calibration"),
+        "fivetran_object_count": config.FIVETRAN_OBJECT_COUNT,
+        "fivetran_objects": config.FIVETRAN_OBJECTS,
         "claim_statement": (
             f"This dataset demonstrates Fivetran Jira connector sync capability at "
-            f"{row_counts.get('issues', 0):,} issue scale across 20 object types. "
+            f"{row_counts.get('issues', 0):,} issue scale across "
+            f"{config.FIVETRAN_OBJECT_COUNT} object types. "
             f"Distribution priors are declared (Appendix A), not derived from "
             f"production data."
         ),
         "assumptions": [
-            {"id": "A1", "text": "20 Jira objects per Fivetran Scorecard", "verified": True},
-            {"id": "A2", "text": "DTS Jira connector does not exist yet", "verified": True},
-            {"id": "A3", "text": "Distributions are declared priors", "verified": True},
+            {"id": "A1",
+             "text": f"{config.FIVETRAN_OBJECT_COUNT} Jira objects per Fivetran Scorecard",
+             "verified": False,
+             "note": "Declared prior from Scorecard Section 4. Verify against current Fivetran docs before publishing."},
+            {"id": "A2", "text": "DTS Jira connector does not exist yet",
+             "verified": False,
+             "note": "Time-sensitive assumption. Re-verify before each benchmark run."},
+            {"id": "A3", "text": "Distributions are declared priors, not from production data",
+             "verified": False,
+             "note": "By design — no customer data was used. Calibration step (Q9) quantifies gap."},
             {"id": "A4", "text": "Can run Fivetran against real Jira for comparison",
-             "verified": results.get("Q9", {}).get("calibration") is not None},
+             "verified": results.get("Q9", {}).get("calibration") is not None,
+             "note": "Verified by eval suite Q9 check — True only if --real-sync-file was provided and loaded."},
             {"id": "A5", "text": "Jira instance pre-configured with projects and users",
-             "verified": results.get("B1", {}).get("status") == PASS},
-            {"id": "A6", "text": "11 RTM tests defined and applicable to Jira", "verified": False},
-            {"id": "A7", "text": "Confluence is next connector after Jira", "verified": False},
+             "verified": results.get("B1", {}).get("status") == PASS,
+             "note": "Verified by eval suite B1 check — True only if all 20 objects were populated."},
+            {"id": "A6", "text": "11 RTM tests defined and applicable to Jira",
+             "verified": False,
+             "note": "Cross-check with RTM folder. Not verified by this suite."},
+            {"id": "A7", "text": "Confluence is next connector after Jira",
+             "verified": False,
+             "note": "Roadmap-level claim. Check against current plans before acting on it."},
         ],
         "eval_elapsed_seconds": round(elapsed, 1),
     }
