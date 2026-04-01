@@ -17,6 +17,16 @@ from dotenv import load_dotenv
 
 log = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Config error (raised instead of sys.exit so library callers can handle it)
+# ---------------------------------------------------------------------------
+
+
+class ConfigError(Exception):
+    """Raised when configuration is invalid or incomplete."""
+
+
 # ---------------------------------------------------------------------------
 # Environment
 # ---------------------------------------------------------------------------
@@ -88,7 +98,11 @@ PROJECTS: Dict[str, ProjectDef] = {
 
 # Sanity check — the base counts must add up to 100K at factor 1.0.
 _TOTAL_BASE = sum(p.base_issues for p in PROJECTS.values())
-assert _TOTAL_BASE == 100_000, f"Base issues sum to {_TOTAL_BASE}, expected 100000"
+if _TOTAL_BASE != 100_000:
+    raise ConfigError(
+        f"Base issues sum to {_TOTAL_BASE:,}, expected 100,000. "
+        f"Check PROJECTS definitions."
+    )
 
 # ---------------------------------------------------------------------------
 # Volume controls
@@ -150,21 +164,12 @@ OUTPUT_DIR: Path = ROOT_DIR / "output"
 MANIFEST_DIR: Path = ROOT_DIR / "manifests"
 
 # ---------------------------------------------------------------------------
-# Config error (raised instead of sys.exit so library callers can handle it)
-# ---------------------------------------------------------------------------
-
-
-class ConfigError(Exception):
-    """Raised when configuration is invalid or incomplete."""
-
-
-# ---------------------------------------------------------------------------
 # Auth helpers
 # ---------------------------------------------------------------------------
 
 
-def get_jira_auth() -> Tuple[str, str]:
-    """Return ``(email, api_token)`` for Jira basic auth."""
+def _check_required_env() -> None:
+    """Raise ``ConfigError`` if any required env vars are missing."""
     missing = []
     if not JIRA_URL:
         missing.append("JIRA_URL")
@@ -177,6 +182,14 @@ def get_jira_auth() -> Tuple[str, str]:
             f"Missing env vars: {', '.join(missing)}. "
             f"Copy .env.example to .env and fill in your values."
         )
+
+
+def get_jira_auth() -> Tuple[str, str]:
+    """Return ``(email, api_token)`` for Jira basic auth.
+
+    Raises ``ConfigError`` if credentials or URL are missing.
+    """
+    _check_required_env()
     return JIRA_EMAIL, JIRA_API_TOKEN
 
 
@@ -192,20 +205,7 @@ def validate_config() -> None:
     Raises ``ConfigError`` on fatal problems (missing credentials or URL).
     CLI scripts should catch ConfigError and call sys.exit(1).
     """
-    missing: list[str] = []
-
-    if not JIRA_URL:
-        missing.append("JIRA_URL")
-    if not JIRA_EMAIL:
-        missing.append("JIRA_EMAIL")
-    if not JIRA_API_TOKEN:
-        missing.append("JIRA_API_TOKEN")
-
-    if missing:
-        raise ConfigError(
-            f"Missing env vars: {', '.join(missing)}. "
-            f"Copy .env.example to .env and fill in your values."
-        )
+    _check_required_env()
 
     # Ensure directories exist (idempotent).
     for d in (CHECKPOINT_DIR, OUTPUT_DIR, MANIFEST_DIR):
